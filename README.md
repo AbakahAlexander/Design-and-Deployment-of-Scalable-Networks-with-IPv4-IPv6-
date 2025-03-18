@@ -1,304 +1,163 @@
+
 # Design and Deployment of Scalable Networks with IPv4/IPv6 and VLAN Segmentation
 
-This project demonstrates how to design and deploy a multi-autonomous system (AS) network using both IPv4 and IPv6. It covers key topics such as VLAN configuration, OSPF routing, RIP routing, BGP (both iBGP and eBGP), link cost manipulation for preferred paths, and tunneling. The setup was tested and visualized in GNS3.
+In this project, I created and deployed a multi-autonomous system (AS) network to showcase routing protocols, VLAN segmentation, IPv4/IPv6 addressing, link cost manipulation, and GRE tunneling. Everything was tested in GNS3 using Cisco router and switch images.
 
 ---
 
 ## Table of Contents
 - [Overview](#overview)
 - [Network Topology](#network-topology)
-- [IPv4 Configuration](#ipv4-configuration)
+- [IPv4 Setup](#ipv4-setup)
   - [Router Interfaces and Naming](#router-interfaces-and-naming)
-  - [IP Addressing Plan](#ip-addressing-plan)
-  - [OSPF Configuration (AS 4010)](#ospf-configuration-as-4010)
-  - [RIP Configuration (AS 20001)](#rip-configuration-as-20001)
-  - [BGP Configuration (iBGP and eBGP)](#bgp-configuration-ibgp-and-ebgp)
-  - [VLAN Configuration](#vlan-configuration)
-  - [Link Cost Preferences](#link-cost-preferences)
-  - [Restricting Loopback Advertisement](#restricting-loopback-advertisement)
-  - [Packet Capture Example](#packet-capture-example)
-- [IPv6 Configuration](#ipv6-configuration)
-  - [IPv6 Addressing Plan](#ipv6-addressing-plan)
+  - [IPv4 Addressing](#ipv4-addressing)
+  - [OSPF (AS 4010)](#ospf-as-4010)
+  - [RIP (AS 20001)](#rip-as-20001)
+  - [BGP (iBGP and eBGP)](#bgp-ibgp-and-ebgp)
+  - [VLAN Segmentation](#vlan-segmentation)
+  - [Link Cost Preference](#link-cost-preference)
+  - [Loopback Advertisement Restrictions](#loopback-advertisement-restrictions)
+  - [Packet Capture](#packet-capture)
+- [IPv6 Setup](#ipv6-setup)
+  - [IPv6 Addressing](#ipv6-addressing)
   - [IPv6 OSPF Configuration](#ipv6-ospf-configuration)
   - [IPv6 BGP Configuration](#ipv6-bgp-configuration)
   - [Tunneling](#tunneling)
-- [How to Reproduce](#how-to-reproduce)
+- [Replication Notes](#replication-notes)
 - [Contact](#contact)
 
 ---
 
 ## Overview
 
-In this project, multiple autonomous systems (AS) are interconnected to form a scalable network supporting both IPv4 and IPv6. The following major topics are included:
+I wanted to build a scalable, multi-AS network that demonstrates how to manage:
+- IPv4 vs. IPv6 address assignment
+- Routing protocols (OSPF, RIP, and BGP)
+- VLAN segmentation on switches
+- GRE tunneling between autonomous systems
+- Traffic engineering by adjusting OSPF link costs
+- Restricting which loopback interfaces are visible outside an AS
 
-- **IPv4 & IPv6**: Fundamental addressing and routing
-- **Routing Protocols**: OSPF, RIP, and BGP (both iBGP and eBGP)
-- **VLAN Segmentation**: Isolating networks using VLANs on switches
-- **GRE Tunnels**: Tunneling IPv4 over IPv6 (or vice versa) connections
-- **Link Cost Manipulation**: Adjusting OSPF metrics to prefer certain link speeds
-- **Loopback Address Management**: Controlling which loopback interfaces are advertised
+Through this process, I verified end-to-end connectivity, checked routing tables, examined protocol operation with Wireshark, and confirmed that each device could reach the routes learned via OSPF, RIP, and BGP as intended.
 
 ---
 
 ## Network Topology
 
-Below is a simplified representation of the overall topology (as configured in GNS3). Each router is labeled (R1, R2, R3, etc.) and belongs to a specific AS:
+I built the following topology in GNS3:
 
 ```
-( Customer A: AS 64496 )      (AS 20001: Nextel)                 (AS 4010: Telstar)     ( Customer B: AS 64497 )
-       R4 ------------------ R1 -- R2 -- R3 ------------------ R7 -- R8 -- R9 ------------------ R5
-                                                     |                    |
-                                                     |                R10 (Level 3)
-                                                     |
-                                                   ( Customer C: AS 64498 )
-                                                     R6
+   (Customer A: AS 64496)          (Nextel: AS 20001)               (Telstar: AS 4010)       (Customer B: AS 64497)
+              R4 ----------------- R1 -- R2 -- R3 ------------------ R7 -- R8 -- R9 ------------------ R5
+                                                           |                  |
+                                                           |               R10 (Level 3)
+                                                           |
+                                                    (Customer C: AS 64498)
+                                                             R6
 ```
 
-> *Note: Replace this ASCII diagram with your actual GNS3 screenshot or network diagram as needed.*
+- **AS 20001** (R1, R2, R3) is connected to the three customers (AS 64496, AS 64497, and AS 64498).
+- **AS 4010** (R7, R8, R9, R10) forms a separate domain with internal OSPF routing.
+- A Level 3 router (R10) interconnects with R9.
+- VLAN segmentation is used in AS 64497 and AS 64498 for local subnets.
 
 ---
 
-## IPv4 Configuration
+## IPv4 Setup
 
 ### Router Interfaces and Naming
 
-- Each router is given names from `R1` to `R10`.
-- Interface numbering correlates with link type: 
-  - FastEthernet (`f0/0`, `f1/0`, etc.) is used for 100 Mbps links.
-  - GigabitEthernet (`g1/0`, `g2/0`, etc.) is used for 1 Gbps links.
+I labeled routers `R1` through `R10` and tied interface numbers to link speeds:
+- FastEthernet (`f0/0`, `f1/0`) for 100 Mbps
+- GigabitEthernet (`g1/0`, `g2/0`) for 1 Gbps
 
-### IP Addressing Plan
+This naming scheme helped me keep track of which interfaces represented high-speed vs. lower-speed links.
 
-- **/30 subnets** are used for point-to-point links that only need two usable addresses.
-- **/29 subnets** are used on links that require up to 6 usable addresses (e.g., router-to-router links with more interfaces).
-- **Loopback** addresses typically use a /32 mask in IPv4.
+### IPv4 Addressing
 
-Below is a sample of the address allocation (partial excerpt):
+I assigned `/30` subnets to point-to-point links where only two IPs are needed and `/29` subnets on links requiring more available addresses (e.g., three or more routers sharing a segment). Loopbacks typically used `/32` masks. Below is an example of some assignments:
 
-| Router/Interface    | IP Address        | Subnet Mask         | Notes                      |
-|---------------------|-------------------|----------------------|----------------------------|
-| **R1 g1/0**         | 192.168.1.1      | 255.255.255.252 (/30)| Towards Customer A (R4)    |
-| **R1 g2/0**         | 192.168.0.1      | 255.255.255.252 (/30)| Core link to R2           |
-| **R1 loopback0**    | 192.168.2.1      | 255.255.255.255 (/32)| Loopback for iBGP, etc.    |
-| **R2 g1/0**         | 192.168.0.2      | 255.255.255.252 (/30)| Connected to R1           |
-| ...                 | ...               | ...                  | ...                        |
+| Router/Interface | IP Address           | Subnet Mask            | Notes                          |
+|------------------|----------------------|-------------------------|---------------------------------|
+| R1 g1/0          | 192.168.1.1         | 255.255.255.252 (/30)  | Connection to Customer A (R4)   |
+| R1 g2/0          | 192.168.0.1         | 255.255.255.252 (/30)  | Connection to R2               |
+| R1 loopback0     | 192.168.2.1         | 255.255.255.255 (/32)  | Used for internal iBGP, etc.    |
+| R2 g1/0          | 192.168.0.2         | 255.255.255.252 (/30)  | Connection to R1               |
+| R3 f0/0          | 192.168.1.5         | 255.255.255.252 (/30)  | Connection to Customer B (R5)   |
+| ...              | ...                  | ...                     | ...                             |
 
-> **Tip:** Use the CLI commands like:
-> ```
-> conf t
-> interface g1/0
->  ip address 192.168.1.1 255.255.255.252
-> end
-> wr
-> ```
+I confirmed correct assignments by checking `show ip interface brief` on each router.
 
-### OSPF Configuration (AS 4010)
+### OSPF (AS 4010)
 
-AS 4010 runs **OSPF** on its internal routers (`R7`, `R8`, `R9`, and possibly `R10` if it belongs to the same AS for IPv4).
+Within AS 4010, I chose OSPF to handle routing among R7, R8, R9, and R10. I activated OSPF on relevant interfaces in area 0 and verified neighbor adjacencies with commands like `show ip ospf neighbor`. This ensured the internal routes were properly exchanged and each router had consistent topology information.
 
-1. Enter configuration mode:
-   ```bash
-   conf t
-   router ospf 1
-   network <subnet_id> <wildcard_mask> area 0
-   end
-   wr
-   ```
-2. Verify with `show ip protocols` or `show ip ospf neighbor`.
+### RIP (AS 20001)
 
-### RIP Configuration (AS 20001)
+For AS 20001, I used RIP to exchange internal routes among R1, R2, and R3. After enabling RIP (version 2), I checked the routing tables on each router to verify that subnets from R1, R2, and R3 were all learned. I also confirmed that external routes destined for the customers (AS 64496, 64497, 64498) were routed correctly.
 
-AS 20001 (e.g., `R1`, `R2`, `R3`) runs **RIP** to exchange routing information. Sample config:
-```bash
-conf t
-router rip
- network 192.168.0.0
- network 192.168.1.0
- version 2
-end
-wr
-```
-Check with `show ip route rip`.
+### BGP (iBGP and eBGP)
 
-### BGP Configuration (iBGP and eBGP)
+I configured iBGP sessions among routers in the same AS (e.g., R1–R2–R3 in AS 20001 and R7–R8–R9–R10 in AS 4010). Meanwhile, I used eBGP to connect different ASes (for instance, R1 <-> R4, R3 <-> R5, R9 <-> R10). When configuring eBGP, I made sure each neighbor statement specified the correct remote AS, and I advertised only the loopback0 or loopback1 addresses I wanted to share. 
 
-- **iBGP** is configured between routers within the same AS.
-- **eBGP** is configured for connections between routers in different ASes.
-- **Note:** The assignment specifies that `loopback1` addresses should **not** be advertised to external neighbors.
+Notably, I kept `loopback0` routes private in eBGP advertisements, as required. This way, external peers only saw `loopback1` addresses from each AS.
 
-Sample configuration snippet (on a router in AS 20001):
-```bash
-conf t
-router bgp 20001
-  neighbor 192.168.0.2 remote-as 20001     ! iBGP
-  neighbor 192.168.1.2 remote-as 64496     ! eBGP (customer link)
-  network 192.168.2.0 mask 255.255.255.0   ! Advertise loopback0 only inside the AS
-  ! do not advertise loopback1 over eBGP
-end
-```
+### VLAN Segmentation
 
-### VLAN Configuration
+AS 64497 and AS 64498 each had two VLANs (VLAN 10 and VLAN 40 for AS 64497, VLAN 10 and VLAN 40 for AS 64498). On each site’s switch, I set two ports in **access** mode for the PCs, assigning each to the correct VLAN, and used **dot1q trunk** mode on the port leading to the router. 
 
-Two switches (in AS 64497 and AS 64498) separate VLANs to isolate traffic among hosts. Each switch port connecting a PC is set as an access port in the appropriate VLAN (e.g., VLAN 10 or VLAN 40).
+The router interfaces in these ASes had subinterfaces (`f0/0.10`, `f0/0.40`, etc.) with corresponding VLAN tags. This let me confirm that PCs in the same VLAN could communicate properly, while remaining isolated from other VLANs.
 
-Example for creating/accessing VLAN 10 and VLAN 40 on a switch:
-```bash
-conf t
-vlan 10
- name VLAN10
-vlan 40
- name VLAN40
-!
-interface f0/1
- switchport mode access
- switchport access vlan 10
-!
-interface f0/2
- switchport mode access
- switchport access vlan 40
-!
-interface f0/0
- switchport trunk encapsulation dot1q
- switchport mode trunk
-```
+### Link Cost Preference
 
-On the router (`R5`, for example), subinterfaces are configured for each VLAN:
-```bash
-interface f0/0.10
- encapsulation dot1q 10
- ip address 10.0.10.1 255.255.255.0
+Since GigabitEthernet links run at 1 Gbps and FastEthernet at 100 Mbps, I wanted OSPF to prefer the gigabit paths. To do this, I adjusted the OSPF reference bandwidth to `1000`, making the cost for GigabitEthernet links lower than FastEthernet. This forced OSPF to route traffic through the higher-capacity links when possible.
 
-interface f0/0.40
- encapsulation dot1q 40
- ip address 10.0.40.1 255.255.255.0
-```
+### Loopback Advertisement Restrictions
 
-### Link Cost Preferences
+I also ensured that `loopback0` was **not** advertised to external neighbors. For eBGP, I only included `loopback1` in the `network` statements. On the other hand, the iBGP or internal IGP configurations still carried `loopback0` so I could use it for internal router identification and stability checks.
 
-To prefer **GigabitEthernet** links over **FastEthernet** in OSPF, adjust the reference bandwidth:
-```bash
-conf t
-router ospf 1
- auto-cost reference-bandwidth 1000
-end
-```
-This ensures Gigabit links have lower cost (better preference) compared to FastEthernet.
+### Packet Capture
 
-### Restricting Loopback Advertisement
+To verify everything was working as expected, I ran Wireshark captures on the GNS3 links. I confirmed that:
+- OSPF Hello packets and LSAs were exchanged within each OSPF domain.
+- RIP updates circulated in AS 20001.
+- BGP KEEPALIVE and UPDATE messages were flowing between peers.
 
-Per the assignment, `loopback0` addresses must **not** be advertised to external neighbors:
-- Simply omit `loopback0` from the `network` statements in eBGP neighbor configurations.
-- Only add `loopback1` if you need a loopback interface externally visible.
-
-### Packet Capture Example
-
-Below is a snippet from a Wireshark capture of OSPF hello/LSA exchanges between `R7` and `R8`:
-
-```
-OSPFv2 Hello Packet
-    Version: 2
-    Message Type: Hello
-    ...
-```
+This gave me visibility into the protocols’ behavior and helped confirm that adjacency formation was correct.
 
 ---
 
-## IPv6 Configuration
+## IPv6 Setup
 
-### IPv6 Addressing Plan
+### IPv6 Addressing
 
-For the same ASes, the IPv6 addresses are assigned with suitable prefixes (e.g., /66, /67, /128 for loopbacks). A sample of the IPv6 address plan:
+After establishing IPv4 routing, I moved on to IPv6. I used `/66` and `/67` prefixes for router-to-router links and `/128` for loopbacks. An example of some assigned addresses:
 
-| Router/Interface       | IPv6 Address                         | Prefix  | Notes                              |
-|------------------------|--------------------------------------|--------|-------------------------------------|
-| **R5 g2/0** (AS 64497) | fd00:0:0:2000:0002::0/66             | /66    | VLAN/Customer link                  |
-| **R6 f0/0** (AS 64498) | fd00:0:0:2000:4002::0/66             | /66    | VLAN/Customer link                  |
-| **R9 g2/0** (AS 4010)  | fd00:0:0:1000:8001::0/66             | /66    | Internal Gbps link in Telstar AS    |
-| **R10 g2/0**           | fd00:0:0:3000:0002::0/67             | /67    | Level 3 link                        |
-| **Loopback0**          | fd00:0:0:4000:0001::0/128            | /128   | Used for iBGP in IPv6, etc.         |
+| Router/Interface     | IPv6 Address                         | Prefix  | Notes                                     |
+|----------------------|--------------------------------------|--------|-------------------------------------------|
+| R5 g2/0 (AS 64497)   | fd00:0:0:2000:0002::0/66             | /66    | VLAN/Customer link for IPv6              |
+| R6 f0/0 (AS 64498)   | fd00:0:0:2000:4002::0/66             | /66    | Another VLAN link                         |
+| R9 g2/0 (AS 4010)    | fd00:0:0:1000:8001::0/66             | /66    | Internal Gbps link inside Telstar         |
+| R10 g2/0             | fd00:0:0:3000:0002::0/67             | /67    | Connection from Telstar to Level 3        |
+| Loopback0 (Various)  | fd00:0:0:4000:xxxx::/128             | /128   | iBGP endpoints, internal addresses, etc.  |
 
 ### IPv6 OSPF Configuration
 
-On each router within AS 4010 (Telstar), enable OSPFv3 (or IPv6 OSPF) for interfaces:
-```bash
-conf t
-ipv6 unicast-routing
-ipv6 cef
-interface g1/0
- ipv6 address fd00:0:0:1000:0001::1/66
- ipv6 ospf 1 area 0
-```
-Check with `show ipv6 ospf neighbor` or `show ipv6 route ospf`.
+Within Telstar (AS 4010), I enabled OSPFv3 (or IPv6 OSPF) by activating IPv6 unicast routing on each router, then placing the relevant router interfaces in OSPF area 0. The neighbor relationships came up similarly to the IPv4 OSPF, which let me confirm that both protocols coexisted smoothly.
 
 ### IPv6 BGP Configuration
 
-Similarly, configure BGP for IPv6:
-```bash
-conf t
-ipv6 unicast-routing
-router bgp 4010
- bgp router-id 7.7.7.7
- neighbor fd00:0:0:1000:0002::1 remote-as 4010
- address-family ipv6
-  neighbor fd00:0:0:1000:0002::1 activate
-  network fd00:0:0:4000:0001::/128
- exit
-end
-```
-- Use `address-family ipv6` to specify IPv6 routes.
-- iBGP vs. eBGP is determined by whether the `remote-as` matches your own AS.
+I also set up BGP for IPv6 routes by specifying `address-family ipv6` in the `router bgp <AS>` configuration. I then activated each neighbor for IPv6. Once done, each router in the same AS formed iBGP relationships, and eBGP adjacency was established with external AS neighbors. Checking `show bgp ipv6 unicast` gave me all the prefixes being exchanged.
 
 ### Tunneling
 
-To enable GRE IPv4-over-IPv6 (or IPv6-over-IPv4) tunnels, configure **tunnel interfaces** on each endpoint:
-```bash
-conf t
-interface Tunnel1
- no shutdown
- ip address 192.168.1.129 255.255.255.252
- tunnel source <ipv6 or ipv4 interface/address>
- tunnel destination <remote ipv6 or ipv4 interface/address>
- tunnel mode gre ipv6   ! or 'tunnel mode gre ip'
-exit
-
-ip route 10.0.10.0 255.255.255.0 Tunnel1
-```
-This allows hosts in different ASes (e.g., Customer B & C) to reach each other via the tunnel.
+I tested a GRE tunnel carrying IPv4 traffic over an IPv6 path (and vice versa) between two customer routers (e.g., R5 and R6). I created the `tunnel` interfaces, assigned appropriate IPv4 addresses, and pointed static routes at the tunnel for remote subnets. This allowed traffic from one customer VLAN to reach the other’s VLAN, securely tunneled across IPv6.
 
 ---
 
-## How to Reproduce
+## Replication Notes
 
-1. **Software Requirements**  
-   - [GNS3](https://www.gns3.com/) or a similar network emulator  
-   - Cisco router/switch images (IOS) compatible with your GNS3 version  
-
-2. **Clone/Download Project**  
-   - Clone this repository to get the base configuration files if you’ve exported them.
-
-3. **Import / Re-create Topology**  
-   - Open GNS3 and either import the provided `.gns3project` file or manually recreate the topology:
-     - Create routers R1 through R10.
-     - Assign interfaces per the address plan.
-     - Configure OSPF, RIP, BGP, VLAN, etc.
-
-4. **Configure the Devices**  
-   - Use the sample configuration commands from the sections above.
-   - Adjust the IP addresses, VLAN IDs, and AS numbers to match your local environment.
-
-5. **Testing**  
-   - Verify connectivity with `ping`, `traceroute`, `show ip route`, and `show ip bgp`.
-   - Capture traffic with Wireshark to confirm routing protocol exchanges.
-
----
-
-## Contact
-
-For any questions or clarifications, feel free to reach out:
-
-- **Email:** alexanderabakah70@gmail.com
-
----
-
-> **Disclaimer**: This README and sample configuration are for demonstration and learning purposes. Always follow your organizational policies and best practices when configuring production networks.
+- **Platform**: I ran GNS3 version X.X with Cisco IOS images that support IPv6 routing and advanced protocols.
+- **Requirements**: Sufficient computing resources for multiple routers/switches in GNS3, and Wireshark for captures.
+- **Configuration Files**: If you have my exported `.gns3` project or individual `startup-config`s, you can import them directly. Otherwise, you can replicate the steps I took as described above.
 
