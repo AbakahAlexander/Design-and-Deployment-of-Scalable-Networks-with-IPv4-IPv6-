@@ -23,8 +23,8 @@ In this project, I created and deployed a multi-autonomous system (AS) network t
   - [IPv6 OSPF Configuration](#ipv6-ospf-configuration)
   - [IPv6 BGP Configuration](#ipv6-bgp-configuration)
   - [Tunneling](#tunneling)
-- [Replication Notes](#replication-notes)
-- [Contact](#contact)
+
+
 
 ---
 
@@ -155,7 +155,6 @@ I tested a GRE tunnel carrying IPv4 traffic over an IPv6 path (and vice versa) b
 
 ---
 
-## Replication Notes
 
 - **Platform**: I ran GNS3 version X.X with Cisco IOS images that support IPv6 routing and advanced protocols.
 - **Requirements**: Sufficient computing resources for multiple routers/switches in GNS3, and Wireshark for captures.
